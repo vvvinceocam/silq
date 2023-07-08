@@ -1,0 +1,20 @@
+# devenv.sh configuration & cache
+/.devenv*
+/devenv.local.nix
+/.direnv
+/.pre-commit-config.yaml
+
+# cargo artifacts
+/target/
+/Cargo.lock
+/.cargo/
+
+# external sources
+/php-src/
+/.rust-src
+
+# PHP libraries
+/vendor/
+
+# IDE configuration
+/.idea/
