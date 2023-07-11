@@ -1,0 +1,7 @@
+services:
+  echo-server:
+    image: docker.io/mendhak/http-https-echo:26
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: curl --fail http://localhost:8080 || exit 1
