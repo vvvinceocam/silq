@@ -5,8 +5,15 @@ use ext_php_rs::prelude::*;
 use http_body_util::{BodyExt, Empty};
 use hyper::body::{Bytes, Incoming};
 use hyper::http::response::Parts;
+use once_cell::sync::OnceCell;
 use tokio::net::TcpStream;
 use tokio::runtime::Runtime;
+
+static RUNTIME: OnceCell<Runtime> = OnceCell::new();
+
+fn get_runtime() -> &'static Runtime {
+    RUNTIME.get().expect("Unitizialied Spidroin Runtime")
+}
 
 /// HTTP client
 #[php_class(name = "Spidroin\\HttpClient")]
@@ -38,7 +45,7 @@ impl HttpClient {
             .body(Empty::<Bytes>::new())
             .unwrap();
 
-        let rt = Runtime::new().unwrap();
+        let rt = get_runtime();
 
         let res = rt.block_on(async move {
             // Open a TCP connection to the remote host
@@ -81,7 +88,7 @@ impl Response {
 
     /// Download body as utf-8 string.
     pub fn get_text(&mut self) -> String {
-        let rt = Runtime::new().unwrap();
+        let rt = get_runtime();
         let res = &mut self.body.take().unwrap();
         rt.block_on(async move {
             let mut body = String::new();
@@ -94,6 +101,13 @@ impl Response {
             body
         })
     }
+}
+
+#[php_startup]
+fn startup() {
+    RUNTIME
+        .set(Runtime::new().expect("Unable to create async runtime"))
+        .expect("Unable to set global runtime");
 }
 
 #[php_module]
