@@ -13,6 +13,7 @@ lto = "thin"
 
 [dependencies]
 ext-php-rs = "0.10.1"
+http = "0.2.9"
 http-body-util = "0.1.0-rc.2"
 hyper = { version = "= 1.0.0-rc.3", features = ["client", "http1", "http2"] }
 hyper-rustls = "0.24.0"

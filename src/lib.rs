@@ -2,10 +2,15 @@
 #![cfg_attr(windows, feature(abi_vectorcall))]
 
 use ext_php_rs::prelude::*;
+use ext_php_rs::types::ZendClassObject;
+use http::request::Builder;
 use http_body_util::{BodyExt, Empty};
 use hyper::body::{Bytes, Incoming};
+use hyper::header::HeaderName;
 use hyper::http::response::Parts;
+use hyper::{HeaderMap, Method};
 use once_cell::sync::OnceCell;
+use std::collections::HashMap;
 use tokio::net::TcpStream;
 use tokio::runtime::Runtime;
 
@@ -26,7 +31,7 @@ impl HttpClient {
     }
 
     /// Execute a GET request to the specified URL. Returns a Response object.
-    pub fn get(&self, uri: &str) -> Response {
+    pub fn get(&self, uri: &str) -> RequestBuilder {
         let uri = uri.parse::<hyper::Uri>().unwrap();
 
         // Get the host and the port
@@ -39,13 +44,62 @@ impl HttpClient {
         let authority = uri.authority().unwrap().clone();
 
         // Create an HTTP request with an empty body and a HOST header
-        let req = hyper::Request::builder()
+        let builder = hyper::Request::builder()
+            .method(Method::GET)
             .uri(uri)
-            .header(hyper::header::HOST, authority.as_str())
-            .body(Empty::<Bytes>::new())
-            .unwrap();
+            .header(hyper::header::HOST, authority.as_str());
+        println!("YEAH");
+        RequestBuilder { address, builder }
+    }
+}
 
+#[php_class(name = "Spidroin\\RequestBuilder")]
+pub struct RequestBuilder {
+    address: String,
+    builder: Builder,
+}
+
+impl RequestBuilder {
+    fn get_mut_headers(&mut self) -> &mut HeaderMap {
+        self.builder.headers_mut().unwrap()
+    }
+}
+
+#[php_impl]
+impl RequestBuilder {
+    /// Add given headers to the request.
+    ///
+    /// @param headers array<string, string>
+    /// @param update bool [default: false] Whether update value of preexisting headers.
+    /// @return RequestBuilder
+    pub fn with_headers(
+        #[this] this: &mut ZendClassObject<Self>,
+        headers: HashMap<String, String>,
+        update: Option<bool>,
+    ) -> &mut ZendClassObject<Self> {
+        let request_headers = this.get_mut_headers();
+        let update = update.unwrap_or(false);
+        for (key, value) in headers.iter() {
+            let key: HeaderName = key.try_into().unwrap();
+            let value = value.try_into().unwrap();
+            if update {
+                request_headers.insert(key, value);
+            } else {
+                request_headers.append(key, value);
+            }
+        }
+        this
+    }
+
+    /// Send the request and return response.
+    ///
+    /// @return Response
+    pub fn send(&mut self) -> Response {
         let rt = get_runtime();
+
+        let address = self.address.clone();
+        let builder = std::mem::replace(&mut self.builder, Builder::new());
+        let req = builder.body(Empty::<Bytes>::new()).unwrap();
 
         let res = rt.block_on(async move {
             // Open a TCP connection to the remote host
