@@ -48,14 +48,8 @@ impl From<SpidroinError> for PhpException {
 #[php_class(name = "Spidroin\\HttpClient")]
 pub struct HttpClient;
 
-#[php_impl]
 impl HttpClient {
-    pub fn __construct() -> Self {
-        Self {}
-    }
-
-    /// Execute a GET request to the specified URL. Returns a Response object.
-    pub fn get(&self, uri: &str) -> PhpResult<RequestBuilder> {
+    fn request(&self, method: Method, uri: &str) -> PhpResult<RequestBuilder> {
         let uri = uri
             .parse::<hyper::Uri>()
             .map_err(|err| SpidroinError::from("Unable to parse URI", &err))?;
@@ -74,10 +68,62 @@ impl HttpClient {
 
         // Create an HTTP request with an empty body and a HOST header
         let builder = hyper::Request::builder()
-            .method(Method::GET)
+            .method(method)
             .uri(uri)
             .header(hyper::header::HOST, authority.as_str());
         Ok(RequestBuilder { address, builder })
+    }
+}
+
+#[php_impl]
+impl HttpClient {
+    pub fn __construct() -> Self {
+        Self {}
+    }
+
+    /// Execute a HEAD request to the specified URL. Returns a Response object.
+    pub fn head(&self, uri: &str) -> PhpResult<RequestBuilder> {
+        self.request(Method::HEAD, uri)
+    }
+
+    /// Execute a GET request to the specified URL. Returns a Response object.
+    pub fn get(&self, uri: &str) -> PhpResult<RequestBuilder> {
+        self.request(Method::GET, uri)
+    }
+
+    /// Execute a POST request to the specified URL. Returns a Response object.
+    pub fn post(&self, uri: &str) -> PhpResult<RequestBuilder> {
+        self.request(Method::POST, uri)
+    }
+
+    /// Execute a PUT request to the specified URL. Returns a Response object.
+    pub fn put(&self, uri: &str) -> PhpResult<RequestBuilder> {
+        self.request(Method::PUT, uri)
+    }
+
+    /// Execute a PATCH request to the specified URL. Returns a Response object.
+    pub fn patch(&self, uri: &str) -> PhpResult<RequestBuilder> {
+        self.request(Method::PATCH, uri)
+    }
+
+    /// Execute a DELETE request to the specified URL. Returns a Response object.
+    pub fn delete(&self, uri: &str) -> PhpResult<RequestBuilder> {
+        self.request(Method::DELETE, uri)
+    }
+
+    /// Execute a CONNECT request to the specified URL. Returns a Response object.
+    pub fn connect(&self, uri: &str) -> PhpResult<RequestBuilder> {
+        self.request(Method::CONNECT, uri)
+    }
+
+    /// Execute a OPTIONS request to the specified URL. Returns a Response object.
+    pub fn options(&self, uri: &str) -> PhpResult<RequestBuilder> {
+        self.request(Method::OPTIONS, uri)
+    }
+
+    /// Execute a TRACE request to the specified URL. Returns a Response object.
+    pub fn trace(&self, uri: &str) -> PhpResult<RequestBuilder> {
+        self.request(Method::TRACE, uri)
     }
 }
 
