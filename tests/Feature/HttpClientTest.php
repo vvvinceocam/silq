@@ -1,5 +1,10 @@
 <?php
- use Spidroin\HttpClient;
+use Spidroin\HttpClient;
+
+function parseSafeCookies(string $rawCookies): array {
+    $pairs = array_map(fn($cookie) => explode('=', $cookie), explode('; ', $rawCookies));
+    return array_combine(array_column($pairs, 0), array_map(fn($value) => urldecode($value), array_column($pairs, 1)));
+}
 
 test('simple GET request', function () {
     $client = new HttpClient();
@@ -94,5 +99,44 @@ test('GET request with headers', function () {
     $json = json_decode($body, true);
 
     expect($json['path'])->toBe('/');
+    expect($json['headers'])->toMatchArray($headers);
+});
+
+test('GET request with cookies', function () {
+    $cookies = [
+        "baz" => "qux",
+        "foo" => "bar",
+        "some-key" => "value2 ;  value2",
+    ];
+    $client = new HttpClient();
+    $response = $client->get('http://localhost:8080')->withSafeCookies($cookies)->send();
+    expect($response->getStatusCode())->toBe(200);
+    $body = $response->getText();
+    $json = json_decode($body, true);
+    expect(parseSafeCookies($json['headers']['cookie']))->toMatchArray($cookies);
+});
+
+test('GET request with both cookies and headers', function () {
+    $headers = [
+       'x-custom-header1' => 'some value',
+       'x-custom-header2' => 'some value with ;',
+   ];
+
+    $cookies = [
+        "baz" => "qux",
+        "foo" => "bar",
+    ];
+
+    $client = new HttpClient();
+    $response = $client->get('http://localhost:8080')
+        ->withHeaders($headers)
+        ->withSafeCookies($cookies)
+        ->send();
+    expect($response->getStatusCode())->toBe(200);
+
+    $body = $response->getText();
+    $json = json_decode($body, true);
+
+    expect(parseSafeCookies($json['headers']['cookie']))->toMatchArray($cookies);
     expect($json['headers'])->toMatchArray($headers);
 });

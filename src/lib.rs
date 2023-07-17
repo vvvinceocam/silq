@@ -139,6 +139,26 @@ impl RequestBuilder {
             .headers_mut()
             .ok_or_else(|| SpidroinError::new("Unable to get headers".to_string()).into())
     }
+
+    fn set_cookies(&mut self, cookies: HashMap<String, String>) -> PhpResult<()> {
+        let request_headers = self.get_mut_headers()?;
+        let mut encoded_cookies = String::new();
+        for (i, (key, value)) in cookies.iter().enumerate() {
+            if i != 0 {
+                encoded_cookies.push_str("; ");
+            }
+            encoded_cookies.push_str(key);
+            encoded_cookies.push('=');
+            encoded_cookies.push_str(value);
+        }
+        request_headers.append(
+            "Cookie",
+            encoded_cookies.try_into().map_err(|err| {
+                SpidroinError::from("Unable to convert cookies to header value", &err)
+            })?,
+        );
+        Ok(())
+    }
 }
 
 #[php_impl]
@@ -168,6 +188,34 @@ impl RequestBuilder {
                 request_headers.append(key, value);
             }
         }
+        Ok(this)
+    }
+
+    /// Add given cookies to the request as-is.
+    ///
+    /// @param cookies array<string, string>
+    /// @return RequestBuilder
+    pub fn with_raw_cookies(
+        #[this] this: &mut ZendClassObject<Self>,
+        cookies: HashMap<String, String>,
+    ) -> PhpResult<&mut ZendClassObject<Self>> {
+        this.set_cookies(cookies)?;
+        Ok(this)
+    }
+
+    /// Add given cookies to the request with URL encoding.
+    ///
+    /// @param cookies array<string, string>
+    /// @return RequestBuilder
+    pub fn with_safe_cookies(
+        #[this] this: &mut ZendClassObject<Self>,
+        cookies: HashMap<String, String>,
+    ) -> PhpResult<&mut ZendClassObject<Self>> {
+        let safe_cookies = cookies
+            .into_iter()
+            .map(|(key, value)| (key, urlencoding::encode(&value).into_owned()))
+            .collect::<HashMap<_, _>>();
+        this.set_cookies(safe_cookies)?;
         Ok(this)
     }
 
