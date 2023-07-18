@@ -6,7 +6,6 @@
 
 # cargo artifacts
 /target/
-/Cargo.lock
 /.cargo/
 
 # external sources
