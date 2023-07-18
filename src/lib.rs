@@ -1,13 +1,15 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(windows, feature(abi_vectorcall))]
 
+use ext_php_rs::binary::Binary;
 use std::collections::HashMap;
 use std::error::Error;
+use std::mem;
 
 use ext_php_rs::prelude::*;
 use ext_php_rs::types::ZendClassObject;
 use http::request::Builder;
-use http_body_util::{BodyExt, Empty};
+use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::header::HeaderName;
 use hyper::http::response::Parts;
@@ -48,8 +50,72 @@ impl From<SpidroinError> for PhpException {
 #[php_class(name = "Spidroin\\HttpClient")]
 pub struct HttpClient;
 
+#[php_impl]
 impl HttpClient {
-    fn request(&self, method: Method, uri: &str) -> PhpResult<RequestBuilder> {
+    pub fn __construct() -> Self {
+        Self {}
+    }
+
+    /// Execute a HEAD request to the specified URL. Returns a Response object.
+    pub fn head(&self, uri: &str) -> PhpResult<RequestBuilder> {
+        RequestBuilder::new(Method::HEAD, uri)
+    }
+
+    /// Execute a GET request to the specified URL. Returns a Response object.
+    pub fn get(&self, uri: &str) -> PhpResult<RequestBuilder> {
+        RequestBuilder::new(Method::GET, uri)
+    }
+
+    /// Execute a POST request to the specified URL. Returns a Response object.
+    pub fn post(&self, uri: &str) -> PhpResult<RequestBuilder> {
+        RequestBuilder::new(Method::POST, uri)
+    }
+
+    /// Execute a PUT request to the specified URL. Returns a Response object.
+    pub fn put(&self, uri: &str) -> PhpResult<RequestBuilder> {
+        RequestBuilder::new(Method::PUT, uri)
+    }
+
+    /// Execute a PATCH request to the specified URL. Returns a Response object.
+    pub fn patch(&self, uri: &str) -> PhpResult<RequestBuilder> {
+        RequestBuilder::new(Method::PATCH, uri)
+    }
+
+    /// Execute a DELETE request to the specified URL. Returns a Response object.
+    pub fn delete(&self, uri: &str) -> PhpResult<RequestBuilder> {
+        RequestBuilder::new(Method::DELETE, uri)
+    }
+
+    /// Execute a CONNECT request to the specified URL. Returns a Response object.
+    pub fn connect(&self, uri: &str) -> PhpResult<RequestBuilder> {
+        RequestBuilder::new(Method::CONNECT, uri)
+    }
+
+    /// Execute a OPTIONS request to the specified URL. Returns a Response object.
+    pub fn options(&self, uri: &str) -> PhpResult<RequestBuilder> {
+        RequestBuilder::new(Method::OPTIONS, uri)
+    }
+
+    /// Execute a TRACE request to the specified URL. Returns a Response object.
+    pub fn trace(&self, uri: &str) -> PhpResult<RequestBuilder> {
+        RequestBuilder::new(Method::TRACE, uri)
+    }
+}
+
+enum Payload {
+    Empty,
+    Bytes(Vec<u8>),
+}
+
+#[php_class(name = "Spidroin\\RequestBuilder")]
+pub struct RequestBuilder {
+    address: String,
+    builder: Builder,
+    payload: Payload,
+}
+
+impl RequestBuilder {
+    pub fn new(method: Method, uri: &str) -> PhpResult<Self> {
         let uri = uri
             .parse::<hyper::Uri>()
             .map_err(|err| SpidroinError::from("Unable to parse URI", &err))?;
@@ -71,69 +137,14 @@ impl HttpClient {
             .method(method)
             .uri(uri)
             .header(hyper::header::HOST, authority.as_str());
-        Ok(RequestBuilder { address, builder })
-    }
-}
 
-#[php_impl]
-impl HttpClient {
-    pub fn __construct() -> Self {
-        Self {}
+        Ok(Self {
+            address,
+            builder,
+            payload: Payload::Empty,
+        })
     }
 
-    /// Execute a HEAD request to the specified URL. Returns a Response object.
-    pub fn head(&self, uri: &str) -> PhpResult<RequestBuilder> {
-        self.request(Method::HEAD, uri)
-    }
-
-    /// Execute a GET request to the specified URL. Returns a Response object.
-    pub fn get(&self, uri: &str) -> PhpResult<RequestBuilder> {
-        self.request(Method::GET, uri)
-    }
-
-    /// Execute a POST request to the specified URL. Returns a Response object.
-    pub fn post(&self, uri: &str) -> PhpResult<RequestBuilder> {
-        self.request(Method::POST, uri)
-    }
-
-    /// Execute a PUT request to the specified URL. Returns a Response object.
-    pub fn put(&self, uri: &str) -> PhpResult<RequestBuilder> {
-        self.request(Method::PUT, uri)
-    }
-
-    /// Execute a PATCH request to the specified URL. Returns a Response object.
-    pub fn patch(&self, uri: &str) -> PhpResult<RequestBuilder> {
-        self.request(Method::PATCH, uri)
-    }
-
-    /// Execute a DELETE request to the specified URL. Returns a Response object.
-    pub fn delete(&self, uri: &str) -> PhpResult<RequestBuilder> {
-        self.request(Method::DELETE, uri)
-    }
-
-    /// Execute a CONNECT request to the specified URL. Returns a Response object.
-    pub fn connect(&self, uri: &str) -> PhpResult<RequestBuilder> {
-        self.request(Method::CONNECT, uri)
-    }
-
-    /// Execute a OPTIONS request to the specified URL. Returns a Response object.
-    pub fn options(&self, uri: &str) -> PhpResult<RequestBuilder> {
-        self.request(Method::OPTIONS, uri)
-    }
-
-    /// Execute a TRACE request to the specified URL. Returns a Response object.
-    pub fn trace(&self, uri: &str) -> PhpResult<RequestBuilder> {
-        self.request(Method::TRACE, uri)
-    }
-}
-
-#[php_class(name = "Spidroin\\RequestBuilder")]
-pub struct RequestBuilder {
-    address: String,
-    builder: Builder,
-}
-
-impl RequestBuilder {
     fn get_mut_headers(&mut self) -> PhpResult<&mut HeaderMap> {
         self.builder
             .headers_mut()
@@ -219,6 +230,18 @@ impl RequestBuilder {
         Ok(this)
     }
 
+    /// Add given string as request's body.
+    ///
+    /// @param body string
+    /// @return RequestBuilder
+    pub fn with_body(
+        #[this] this: &mut ZendClassObject<Self>,
+        bytes: Binary<u8>,
+    ) -> PhpResult<&mut ZendClassObject<Self>> {
+        this.payload = Payload::Bytes(bytes.to_vec());
+        Ok(this)
+    }
+
     /// Send the request and return response.
     ///
     /// @return Response
@@ -227,9 +250,12 @@ impl RequestBuilder {
 
         let address = self.address.clone();
         let builder = std::mem::replace(&mut self.builder, Builder::new());
-        let req = builder
-            .body(Empty::<Bytes>::new())
-            .map_err(|err| SpidroinError::from("Unable to build body", &err))?;
+
+        let req = match mem::replace(&mut self.payload, Payload::Empty) {
+            Payload::Empty => builder.body(Full::<Bytes>::from(Bytes::new())),
+            Payload::Bytes(bytes) => builder.body(Full::<Bytes>::from(bytes)),
+        }
+        .map_err(|err| SpidroinError::from("Unable to build body", &err))?;
 
         let res = rt.block_on(async move {
             // Open a TCP connection to the remote host

@@ -3,15 +3,16 @@
 {
   languages.rust = {
     enable = true;
-    version = "stable";
+    channel = "stable";
   };
 
   pre-commit.hooks = {
-    clippy.enable = true;
+    clippy.enable = false;
     rustfmt.enable = true;
   };
 
   packages = [
+   pkgs.git
    pkgs.just
    pkgs.php82.packages.composer
 

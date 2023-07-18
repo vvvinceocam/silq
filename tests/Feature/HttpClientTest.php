@@ -140,3 +140,22 @@ test('GET request with both cookies and headers', function () {
     expect(parseSafeCookies($json['headers']['cookie']))->toMatchArray($cookies);
     expect($json['headers'])->toMatchArray($headers);
 });
+
+test('POST request with string body', function () {
+    $expectedContent = "Some content\non multiple lines";
+    $client = new HttpClient();
+    $request = $client->post('http://localhost:8080');
+    $response = $request
+        ->withBody($expectedContent)
+        ->send();
+
+    expect($response->getStatusCode())->toBe(200);
+
+    $body = $response->getText();
+    $json = json_decode($body, true);
+
+    expect($json['method'])->toBe('POST');
+    expect($json['path'])->toBe('/');
+    expect($json['headers']['host'])->toBe('localhost:8080');
+    expect($json['body'])->toBe($expectedContent);
+});
