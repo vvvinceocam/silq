@@ -159,3 +159,52 @@ test('POST request with string body', function () {
     expect($json['headers']['host'])->toBe('localhost:8080');
     expect($json['body'])->toBe($expectedContent);
 });
+
+test('POST request with JSON body', function () {
+    $expectedContent = [
+        "string" => "some value",
+        "integer" => 123,
+        "float" => 3.14,
+        "array" => [ 1, 2, 3 ],
+        "null" => NULL,
+    ];
+    $client = new HttpClient();
+    $request = $client->post('http://localhost:8080');
+    $response = $request
+        ->withJson($expectedContent)
+        ->send();
+
+    expect($response->getStatusCode())->toBe(200);
+
+    $body = $response->getText();
+    $json = json_decode($body, true);
+
+    expect($json['method'])->toBe('POST');
+    expect($json['path'])->toBe('/');
+    expect($json['headers']['content-type'])->toBe('application/json');
+    expect($json['json'])->toBe($expectedContent);
+});
+
+test('POST request with FORM body', function () {
+    $expectedContent = [
+        "string" => "some value",
+        "integer" => "123",
+        "float" => "3.14",
+    ];
+    $client = new HttpClient();
+    $request = $client->post('http://localhost:8080');
+    $response = $request
+        ->withForm($expectedContent)
+        ->send();
+
+    expect($response->getStatusCode())->toBe(200);
+
+    $body = $response->getText();
+    $json = json_decode($body, true);
+
+    expect($json['method'])->toBe('POST');
+    expect($json['path'])->toBe('/');
+    expect($json['headers']['content-type'])->toBe('application/x-www-form-urlencoded');
+    parse_str($json['body'], $parsed);
+    expect($parsed)->toBe($expectedContent);
+});

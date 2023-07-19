@@ -1,24 +1,33 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(windows, feature(abi_vectorcall))]
 
+mod serde;
+
 use ext_php_rs::binary::Binary;
 use std::collections::HashMap;
 use std::error::Error;
 use std::mem;
 
 use ext_php_rs::prelude::*;
-use ext_php_rs::types::ZendClassObject;
+use ext_php_rs::types::{ZendClassObject, Zval};
 use http::request::Builder;
+use http::HeaderValue;
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
-use hyper::header::HeaderName;
+use hyper::header::{HeaderName, CONTENT_TYPE};
 use hyper::http::response::Parts;
 use hyper::{HeaderMap, Method};
 use once_cell::sync::OnceCell;
 use tokio::net::TcpStream;
 use tokio::runtime::Runtime;
 
+use crate::serde::ZvalSerializer;
+
 static RUNTIME: OnceCell<Runtime> = OnceCell::new();
+
+static CONTENT_TYPE_JSON: HeaderValue = HeaderValue::from_static("application/json");
+static CONTENT_TYPE_FORM: HeaderValue =
+    HeaderValue::from_static("application/x-www-form-urlencoded");
 
 fn get_runtime() -> &'static Runtime {
     RUNTIME.get().expect("Unitizialied Spidroin Runtime")
@@ -239,6 +248,44 @@ impl RequestBuilder {
         bytes: Binary<u8>,
     ) -> PhpResult<&mut ZendClassObject<Self>> {
         this.payload = Payload::Bytes(bytes.to_vec());
+        Ok(this)
+    }
+
+    /// Add given array as request's body JSON serialized. Set the content-type header accordingly.
+    ///
+    /// @param body mixed
+    /// @return RequestBuilder
+    pub fn with_json<'a>(
+        #[this] this: &'a mut ZendClassObject<Self>,
+        body: &Zval,
+    ) -> PhpResult<&'a mut ZendClassObject<Self>> {
+        let request_headers = this.get_mut_headers()?;
+        request_headers.insert(CONTENT_TYPE, CONTENT_TYPE_JSON.clone());
+        this.payload = Payload::Bytes(
+            serde_json::to_string(&ZvalSerializer(body))
+                .map_err(|err| SpidroinError::from("Unable to encode value to JSON", &err))?
+                .into_bytes(),
+        );
+        Ok(this)
+    }
+
+    /// Add given array as request's body url encoded as form. Set the content-type header accordingly.
+    ///
+    /// @param body mixed
+    /// @return RequestBuilder
+    pub fn with_form<'a>(
+        #[this] this: &'a mut ZendClassObject<Self>,
+        body: &Zval,
+    ) -> PhpResult<&'a mut ZendClassObject<Self>> {
+        let request_headers = this.get_mut_headers()?;
+        request_headers.insert(CONTENT_TYPE, CONTENT_TYPE_FORM.clone());
+        this.payload = Payload::Bytes(
+            serde_urlencoded::to_string(ZvalSerializer(body))
+                .map_err(|err| {
+                    SpidroinError::from("Unable to encode value to url encoded form", &err)
+                })?
+                .into_bytes(),
+        );
         Ok(this)
     }
 
