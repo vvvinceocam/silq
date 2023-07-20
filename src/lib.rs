@@ -367,9 +367,30 @@ pub struct Response {
 
 #[php_impl]
 impl Response {
+    /// Returns the HTTP status as string
+    pub fn get_status(&self) -> String {
+        self.parts.status.to_string()
+    }
+
     /// Returns the HTTP status code
     pub fn get_status_code(&self) -> u16 {
         self.parts.status.as_u16()
+    }
+
+    pub fn is_success(&self) -> bool {
+        self.parts.status.is_success()
+    }
+
+    pub fn is_client_error(&self) -> bool {
+        self.parts.status.is_client_error()
+    }
+
+    pub fn is_server_error(&self) -> bool {
+        self.parts.status.is_server_error()
+    }
+
+    pub fn is_redirection(&self) -> bool {
+        self.parts.status.is_redirection()
     }
 
     /// Download body as raw bytes.
