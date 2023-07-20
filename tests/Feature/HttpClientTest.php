@@ -217,3 +217,23 @@ test('GET request with basic auth', function () {
     $json = json_decode($body, true);
     expect($json['authenticated'])->toBeTrue();
 });
+
+test('Fetch and parse JSON body', function () {
+    $expectedContent = [
+        "string" => "some value",
+        "integer" => 123,
+        "float" => 3.14,
+        "array" => [ 1, 2, 3 ],
+        "null" => NULL,
+    ];
+    $client = new HttpClient();
+    $request = $client->post('http://localhost:8080');
+    $response = $request
+        ->withJson($expectedContent)
+        ->send();
+
+    expect($response->getStatusCode())->toBe(200);
+
+    $json = $response->getJson();
+    expect($json['json'])->toBe($expectedContent);
+});

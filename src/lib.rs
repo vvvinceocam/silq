@@ -21,7 +21,7 @@ use hyper::{
 use once_cell::sync::OnceCell;
 use tokio::{net::TcpStream, runtime::Runtime};
 
-use crate::serde::ZvalSerializer;
+use crate::serde::{ZvalDeserializer, ZvalSerializer};
 
 static RUNTIME: OnceCell<Runtime> = OnceCell::new();
 
@@ -372,20 +372,37 @@ impl Response {
         self.parts.status.as_u16()
     }
 
-    /// Download body as utf-8 string.
-    pub fn get_text(&mut self) -> String {
-        let rt = get_runtime();
-        let res = &mut self.body.take().unwrap();
-        rt.block_on(async move {
-            let mut body = String::new();
-            while let Some(next) = res.frame().await {
+    /// Download body as raw bytes.
+    pub fn get_bytes(&mut self) -> PhpResult<Binary<u8>> {
+        let runtime = get_runtime();
+        runtime.block_on(async {
+            let mut body = None;
+            mem::swap(&mut self.body, &mut body);
+            let mut body =
+                body.ok_or_else(|| SpidroinError::new("Body already consumed".into()))?;
+            let mut content = vec![];
+            while let Some(next) = body.frame().await {
                 let frame = next.unwrap();
                 if let Some(chunk) = frame.data_ref() {
-                    body.push_str(&String::from_utf8(chunk.to_vec()).unwrap());
+                    content.extend_from_slice(chunk);
                 }
             }
-            body
+            Ok(Binary::from(content))
         })
+    }
+
+    /// Download body as utf-8 string.
+    pub fn get_text(&mut self) -> PhpResult<String> {
+        String::from_utf8(self.get_bytes()?.into())
+            .map_err(|err| SpidroinError::from("Invalid UTF-8 string", &err).into())
+    }
+
+    /// Download body and parse it as JSON.
+    pub fn get_json(&mut self) -> PhpResult<Zval> {
+        match serde_json::from_slice::<ZvalDeserializer>(&self.get_bytes()?) {
+            Err(err) => Err(SpidroinError::from("Invalid JSON", &err).into()),
+            Ok(value) => Ok(value.0),
+        }
     }
 }
 
