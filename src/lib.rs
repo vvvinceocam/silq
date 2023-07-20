@@ -1,9 +1,10 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(windows, feature(abi_vectorcall))]
 
+mod error;
 mod serde;
 
-use std::{collections::HashMap, error::Error, mem};
+use std::{collections::HashMap, mem};
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use ext_php_rs::{
@@ -21,7 +22,10 @@ use hyper::{
 use once_cell::sync::OnceCell;
 use tokio::{net::TcpStream, runtime::Runtime};
 
-use crate::serde::{ZvalDeserializer, ZvalSerializer};
+use crate::{
+    error::SpidroinError,
+    serde::{ZvalDeserializer, ZvalSerializer},
+};
 
 static RUNTIME: OnceCell<Runtime> = OnceCell::new();
 
@@ -31,28 +35,6 @@ static CONTENT_TYPE_FORM: HeaderValue =
 
 fn get_runtime() -> &'static Runtime {
     RUNTIME.get().expect("Uninitialized Spidroin Runtime")
-}
-
-pub struct SpidroinError {
-    pub description: String,
-}
-
-impl SpidroinError {
-    pub fn new(description: String) -> Self {
-        Self { description }
-    }
-
-    pub fn from<T: Error>(context: &str, error: &T) -> Self {
-        Self {
-            description: format!("{context}: {}", error),
-        }
-    }
-}
-
-impl From<SpidroinError> for PhpException {
-    fn from(value: SpidroinError) -> PhpException {
-        PhpException::default(format!("Spidroin Exception: {}", value.description))
-    }
 }
 
 /// HTTP client
