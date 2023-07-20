@@ -3,23 +3,23 @@
 
 mod serde;
 
-use ext_php_rs::binary::Binary;
-use std::collections::HashMap;
-use std::error::Error;
-use std::mem;
+use std::{collections::HashMap, error::Error, mem};
 
-use ext_php_rs::prelude::*;
-use ext_php_rs::types::{ZendClassObject, Zval};
-use http::request::Builder;
-use http::HeaderValue;
+use base64::{engine::general_purpose::STANDARD, Engine};
+use ext_php_rs::{
+    binary::Binary,
+    prelude::*,
+    types::{ZendClassObject, Zval},
+};
+use http::{request::Builder, HeaderMap, HeaderValue, Method};
 use http_body_util::{BodyExt, Full};
-use hyper::body::{Bytes, Incoming};
-use hyper::header::{HeaderName, CONTENT_TYPE};
-use hyper::http::response::Parts;
-use hyper::{HeaderMap, Method};
+use hyper::{
+    body::{Bytes, Incoming},
+    header::{HeaderName, AUTHORIZATION, CONTENT_TYPE},
+    http::response::Parts,
+};
 use once_cell::sync::OnceCell;
-use tokio::net::TcpStream;
-use tokio::runtime::Runtime;
+use tokio::{net::TcpStream, runtime::Runtime};
 
 use crate::serde::ZvalSerializer;
 
@@ -30,7 +30,7 @@ static CONTENT_TYPE_FORM: HeaderValue =
     HeaderValue::from_static("application/x-www-form-urlencoded");
 
 fn get_runtime() -> &'static Runtime {
-    RUNTIME.get().expect("Unitizialied Spidroin Runtime")
+    RUNTIME.get().expect("Uninitialized Spidroin Runtime")
 }
 
 pub struct SpidroinError {
@@ -285,6 +285,27 @@ impl RequestBuilder {
                     SpidroinError::from("Unable to encode value to url encoded form", &err)
                 })?
                 .into_bytes(),
+        );
+        Ok(this)
+    }
+
+    /// Add basic authentication header with given user/password.
+    ///
+    /// @param user string user's name
+    /// @param password string password
+    /// @return RequestBuilder
+    pub fn with_basic_auth<'a>(
+        #[this] this: &'a mut ZendClassObject<Self>,
+        user: &str,
+        password: &str,
+    ) -> PhpResult<&'a mut ZendClassObject<Self>> {
+        let request_headers = this.get_mut_headers()?;
+        let token = format!("Basic {}", STANDARD.encode(format!("{user}:{password}")));
+        request_headers.insert(
+            AUTHORIZATION,
+            token.try_into().map_err(|err| {
+                SpidroinError::from("Unable to encode token as header value", &err)
+            })?,
         );
         Ok(this)
     }

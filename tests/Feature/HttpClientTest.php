@@ -208,3 +208,12 @@ test('POST request with FORM body', function () {
     parse_str($json['body'], $parsed);
     expect($parsed)->toBe($expectedContent);
 });
+
+test('GET request with basic auth', function () {
+    $client = new HttpClient();
+    $response = $client->get('https://postman-echo.com/basic-auth')->withBasicAuth('postman', 'password')->send();
+    expect($response->getStatusCode())->toBe(200);
+    $body = $response->getText();
+    $json = json_decode($body, true);
+    expect($json['authenticated'])->toBeTrue();
+});

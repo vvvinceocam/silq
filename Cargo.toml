@@ -12,6 +12,7 @@ strip = "debuginfo"
 lto = "thin"
 
 [dependencies]
+base64 = "0.21.2"
 ext-php-rs = "0.10.1"
 http = "0.2.9"
 http-body-util = "0.1.0-rc.2"

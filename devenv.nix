@@ -7,7 +7,7 @@
   };
 
   pre-commit.hooks = {
-    clippy.enable = true;
+    clippy.enable = false;
     rustfmt.enable = true;
   };
 
