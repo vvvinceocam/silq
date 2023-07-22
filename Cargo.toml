@@ -1,5 +1,5 @@
 [package]
-name = "spidroin"
+name = "silq"
 version = "0.1.0"
 edition = "2021"
 authors = ["vvvince <vvvince@ofcompute.rs>"]

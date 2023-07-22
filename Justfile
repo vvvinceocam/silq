@@ -29,10 +29,10 @@ run-tests: run-unit-tests run-integration-tests
 
 run-unit-tests: build
   cargo test
-  php -d extension=./target/debug/libspidroin.so vendor/bin/pest --filter Unit
+  php -d extension=./target/debug/libsilq.so vendor/bin/pest --filter Unit
 
 run-integration-tests: build
   docker-compose -f tests/docker-compose.yaml up -d
   sleep 1 # work around to let the service be ready, TODO: use docker's `healthcheck`
-  php -d extension=./target/debug/libspidroin.so vendor/bin/pest --filter Feature
+  php -d extension=./target/debug/libsilq.so vendor/bin/pest --filter Feature
   docker-compose -f tests/docker-compose.yaml down

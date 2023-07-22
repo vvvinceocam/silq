@@ -23,7 +23,7 @@ use once_cell::sync::OnceCell;
 use tokio::{net::TcpStream, runtime::Runtime};
 
 use crate::{
-    error::SpidroinError,
+    error::SilqError,
     serde::{ZvalDeserializer, ZvalSerializer},
 };
 
@@ -34,11 +34,11 @@ static CONTENT_TYPE_FORM: HeaderValue =
     HeaderValue::from_static("application/x-www-form-urlencoded");
 
 fn get_runtime() -> &'static Runtime {
-    RUNTIME.get().expect("Uninitialized Spidroin Runtime")
+    RUNTIME.get().expect("Uninitialized Silq Runtime")
 }
 
 /// HTTP client
-#[php_class(name = "Spidroin\\HttpClient")]
+#[php_class(name = "Silq\\HttpClient")]
 pub struct HttpClient;
 
 #[php_impl]
@@ -98,7 +98,7 @@ enum Payload {
     Bytes(Vec<u8>),
 }
 
-#[php_class(name = "Spidroin\\RequestBuilder")]
+#[php_class(name = "Silq\\RequestBuilder")]
 pub struct RequestBuilder {
     address: String,
     builder: Builder,
@@ -109,7 +109,7 @@ impl RequestBuilder {
     pub fn new(method: Method, uri: &str) -> PhpResult<Self> {
         let uri = uri
             .parse::<hyper::Uri>()
-            .map_err(|err| SpidroinError::from("Unable to parse URI", &err))?;
+            .map_err(|err| SilqError::from("Unable to parse URI", &err))?;
 
         // Get the host and the port
         let host = uri.host().expect("uri has no host");
@@ -120,7 +120,7 @@ impl RequestBuilder {
         // The authority of our URL will be the hostname with port
         let authority = uri
             .authority()
-            .ok_or_else(|| SpidroinError::new("Unable to extract authority".to_string()))?
+            .ok_or_else(|| SilqError::new("Unable to extract authority".to_string()))?
             .clone();
 
         // Create an HTTP request with an empty body and a HOST header
@@ -139,7 +139,7 @@ impl RequestBuilder {
     fn get_mut_headers(&mut self) -> PhpResult<&mut HeaderMap> {
         self.builder
             .headers_mut()
-            .ok_or_else(|| SpidroinError::new("Unable to get headers".to_string()).into())
+            .ok_or_else(|| SilqError::new("Unable to get headers".to_string()).into())
     }
 
     fn set_cookies(&mut self, cookies: HashMap<String, String>) -> PhpResult<()> {
@@ -156,7 +156,7 @@ impl RequestBuilder {
         request_headers.append(
             "Cookie",
             encoded_cookies.try_into().map_err(|err| {
-                SpidroinError::from("Unable to convert cookies to header value", &err)
+                SilqError::from("Unable to convert cookies to header value", &err)
             })?,
         );
         Ok(())
@@ -180,10 +180,10 @@ impl RequestBuilder {
         for (key, value) in headers.iter() {
             let key: HeaderName = key
                 .try_into()
-                .map_err(|err| SpidroinError::from("Unable to parse header name", &err))?;
+                .map_err(|err| SilqError::from("Unable to parse header name", &err))?;
             let value = value
                 .try_into()
-                .map_err(|err| SpidroinError::from("Unable to parse header value", &err))?;
+                .map_err(|err| SilqError::from("Unable to parse header value", &err))?;
             if update {
                 request_headers.insert(key, value);
             } else {
@@ -245,7 +245,7 @@ impl RequestBuilder {
         request_headers.insert(CONTENT_TYPE, CONTENT_TYPE_JSON.clone());
         this.payload = Payload::Bytes(
             serde_json::to_string(&ZvalSerializer(body))
-                .map_err(|err| SpidroinError::from("Unable to encode value to JSON", &err))?
+                .map_err(|err| SilqError::from("Unable to encode value to JSON", &err))?
                 .into_bytes(),
         );
         Ok(this)
@@ -263,9 +263,7 @@ impl RequestBuilder {
         request_headers.insert(CONTENT_TYPE, CONTENT_TYPE_FORM.clone());
         this.payload = Payload::Bytes(
             serde_urlencoded::to_string(ZvalSerializer(body))
-                .map_err(|err| {
-                    SpidroinError::from("Unable to encode value to url encoded form", &err)
-                })?
+                .map_err(|err| SilqError::from("Unable to encode value to url encoded form", &err))?
                 .into_bytes(),
         );
         Ok(this)
@@ -285,9 +283,9 @@ impl RequestBuilder {
         let token = format!("Basic {}", STANDARD.encode(format!("{user}:{password}")));
         request_headers.insert(
             AUTHORIZATION,
-            token.try_into().map_err(|err| {
-                SpidroinError::from("Unable to encode token as header value", &err)
-            })?,
+            token
+                .try_into()
+                .map_err(|err| SilqError::from("Unable to encode token as header value", &err))?,
         );
         Ok(this)
     }
@@ -305,30 +303,30 @@ impl RequestBuilder {
             Payload::Empty => builder.body(Full::<Bytes>::from(Bytes::new())),
             Payload::Bytes(bytes) => builder.body(Full::<Bytes>::from(bytes)),
         }
-        .map_err(|err| SpidroinError::from("Unable to build body", &err))?;
+        .map_err(|err| SilqError::from("Unable to build body", &err))?;
 
         let res = rt.block_on(async move {
             // Open a TCP connection to the remote host
             let stream = TcpStream::connect(address)
                 .await
-                .map_err(|err| SpidroinError::from("Unable to establish connection", &err))?;
+                .map_err(|err| SilqError::from("Unable to establish connection", &err))?;
 
             // Perform a TCP handshake
             let (mut sender, conn) = hyper::client::conn::http1::handshake(stream)
                 .await
-                .map_err(|err| SpidroinError::from("Unable to run handshake", &err))?;
+                .map_err(|err| SilqError::from("Unable to run handshake", &err))?;
 
             // spawn a task to poll the connection and drive the HTTP state
             tokio::task::spawn(async move {
                 conn.await
-                    .map_err(|err| SpidroinError::from("Unable to poll connection", &err))
+                    .map_err(|err| SilqError::from("Unable to poll connection", &err))
             });
 
             // Await the response...
             sender
                 .send_request(req)
                 .await
-                .map_err(|err| SpidroinError::from("Unable to send request", &err))
+                .map_err(|err| SilqError::from("Unable to send request", &err))
         })?;
 
         let (parts, body) = res.into_parts();
@@ -341,7 +339,7 @@ impl RequestBuilder {
 }
 
 /// HTTP Response
-#[php_class(name = "Spidroin\\Response")]
+#[php_class(name = "Silq\\Response")]
 pub struct Response {
     parts: Parts,
     body: Option<Incoming>,
@@ -381,8 +379,7 @@ impl Response {
         runtime.block_on(async {
             let mut body = None;
             mem::swap(&mut self.body, &mut body);
-            let mut body =
-                body.ok_or_else(|| SpidroinError::new("Body already consumed".into()))?;
+            let mut body = body.ok_or_else(|| SilqError::new("Body already consumed".into()))?;
             let mut content = vec![];
             while let Some(next) = body.frame().await {
                 let frame = next.unwrap();
@@ -397,13 +394,13 @@ impl Response {
     /// Download body as utf-8 string.
     pub fn get_text(&mut self) -> PhpResult<String> {
         String::from_utf8(self.get_bytes()?.into())
-            .map_err(|err| SpidroinError::from("Invalid UTF-8 string", &err).into())
+            .map_err(|err| SilqError::from("Invalid UTF-8 string", &err).into())
     }
 
     /// Download body and parse it as JSON.
     pub fn get_json(&mut self) -> PhpResult<Zval> {
         match serde_json::from_slice::<ZvalDeserializer>(&self.get_bytes()?) {
-            Err(err) => Err(SpidroinError::from("Invalid JSON", &err).into()),
+            Err(err) => Err(SilqError::from("Invalid JSON", &err).into()),
             Ok(value) => Ok(value.0),
         }
     }

@@ -1,5 +1,5 @@
 <?php
-use Spidroin\HttpClient;
+use Silq\HttpClient;
 
 function parseSafeCookies(string $rawCookies): array {
     $pairs = array_map(fn($cookie) => explode('=', $cookie), explode('; ', $rawCookies));

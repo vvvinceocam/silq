@@ -2,11 +2,11 @@ use std::error::Error;
 
 use ext_php_rs::exception::PhpException;
 
-pub struct SpidroinError {
+pub struct SilqError {
     pub description: String,
 }
 
-impl SpidroinError {
+impl SilqError {
     pub fn new(description: String) -> Self {
         Self { description }
     }
@@ -18,8 +18,8 @@ impl SpidroinError {
     }
 }
 
-impl From<SpidroinError> for PhpException {
-    fn from(value: SpidroinError) -> PhpException {
-        PhpException::default(format!("Spidroin Exception: {}", value.description))
+impl From<SilqError> for PhpException {
+    fn from(value: SilqError) -> PhpException {
+        PhpException::default(format!("Silq Exception: {}", value.description))
     }
 }

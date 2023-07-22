@@ -1352,6 +1352,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "silq"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "ext-php-rs",
+ "http",
+ "http-body-util",
+ "hyper 1.0.0-rc.3",
+ "hyper-rustls",
+ "once_cell",
+ "rustls",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "tokio",
+ "urlencoding",
+]
+
+[[package]]
 name = "skeptic"
 version = "0.13.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1389,25 +1408,6 @@ checksum = "64a4a911eed85daf18834cfaa86a79b7d266ff93ff5ba14005426219480ed662"
 dependencies = [
  "libc",
  "winapi",
-]
-
-[[package]]
-name = "spidroin"
-version = "0.1.0"
-dependencies = [
- "base64",
- "ext-php-rs",
- "http",
- "http-body-util",
- "hyper 1.0.0-rc.3",
- "hyper-rustls",
- "once_cell",
- "rustls",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "tokio",
- "urlencoding",
 ]
 
 [[package]]
