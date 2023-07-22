@@ -379,9 +379,10 @@ impl Response {
     pub fn get_bytes(&mut self) -> PhpResult<Binary<u8>> {
         let runtime = get_runtime();
         runtime.block_on(async {
-            let mut body = None;
-            mem::swap(&mut self.body, &mut body);
-            let mut body = body.ok_or_else(|| SilqError::new("Body already consumed".into()))?;
+            let mut body = self
+                .body
+                .take()
+                .ok_or_else(|| SilqError::new("Body already consumed".into()))?;
             let mut content = vec![];
             while let Some(next) = body.frame().await {
                 let frame = next.unwrap();
