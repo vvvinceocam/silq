@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(windows, feature(abi_vectorcall))]
+#![allow(clippy::should_implement_trait)]
 
 mod error;
 mod serde;
@@ -11,6 +12,7 @@ use ext_php_rs::{
     binary::Binary,
     prelude::*,
     types::{ZendClassObject, Zval},
+    zend::ce,
 };
 use http::{request::Builder, HeaderMap, HeaderValue, Method};
 use http_body_util::{BodyExt, Full};
@@ -403,6 +405,104 @@ impl Response {
             Err(err) => Err(SilqError::from("Invalid JSON", &err).into()),
             Ok(value) => Ok(value.0),
         }
+    }
+
+    pub fn iter_frames(&mut self) -> PhpResult<FrameIterator> {
+        Ok(FrameIterator::new(self.body.take().ok_or_else(|| {
+            SilqError::new("Body already consumed".into())
+        })?))
+    }
+}
+
+enum FrameIteratorState {
+    /// The iterator
+    Uninitialized,
+    Frame {
+        index: usize,
+        frame: Vec<u8>,
+    },
+    Terminated,
+}
+
+/// Iterator over body's frames
+#[php_class(name = "Silq\\FrameIterator")]
+#[implements(ce::iterator())]
+pub struct FrameIterator {
+    incoming: Incoming,
+    state: FrameIteratorState,
+}
+
+impl FrameIterator {
+    fn new(incoming: Incoming) -> Self {
+        Self {
+            incoming,
+            state: FrameIteratorState::Uninitialized,
+        }
+    }
+
+    fn fetch_next_frame(&mut self) -> PhpResult<()> {
+        let index = match &self.state {
+            FrameIteratorState::Terminated => {
+                return Ok(());
+            }
+            FrameIteratorState::Uninitialized => 0,
+            FrameIteratorState::Frame { index, .. } => index + 1,
+        };
+
+        let runtime = get_runtime();
+        match runtime.block_on(async { self.incoming.frame().await }) {
+            Some(Ok(frame)) => {
+                self.state = FrameIteratorState::Frame {
+                    frame: frame
+                        .into_data()
+                        .map_err(|_| SilqError::new("Unable to decode frame".into()))?
+                        .to_vec(),
+                    index,
+                };
+                Ok(())
+            }
+            None => {
+                self.state = FrameIteratorState::Terminated;
+                Ok(())
+            }
+            Some(Err(err)) => {
+                self.state = FrameIteratorState::Terminated;
+                Err(SilqError::from("Unable to fetch next frame", &err).into())
+            }
+        }
+    }
+}
+
+#[php_impl]
+impl FrameIterator {
+    pub fn current(&self) -> Binary<u8> {
+        match &self.state {
+            FrameIteratorState::Frame { frame, .. } => Binary::from(frame.clone()),
+            _ => {
+                panic!("Invalid call to FrameIterator::current");
+            }
+        }
+    }
+
+    pub fn key(&self) -> usize {
+        match &self.state {
+            FrameIteratorState::Frame { index, .. } => *index,
+            _ => {
+                panic!("Invalid call to FrameIterator::key");
+            }
+        }
+    }
+
+    pub fn next(&mut self) -> PhpResult<()> {
+        self.fetch_next_frame()
+    }
+
+    pub fn rewind(&mut self) -> PhpResult<()> {
+        self.fetch_next_frame()
+    }
+
+    pub fn valid(&self) -> bool {
+        matches!(self.state, FrameIteratorState::Frame { .. })
     }
 }
 

@@ -218,7 +218,7 @@ test('GET request with basic auth', function () {
     expect($json['authenticated'])->toBeTrue();
 });
 
-test('Fetch and parse JSON body', function () {
+test('fetch and parse JSON body', function () {
     $expectedContent = [
         "string" => "some value",
         "integer" => 123,
@@ -235,5 +235,30 @@ test('Fetch and parse JSON body', function () {
     expect($response->getStatusCode())->toBe(200);
 
     $json = $response->getJson();
+    expect($json['json'])->toBe($expectedContent);
+});
+
+test('consume body frame by frame', function () {
+    $expectedContent = [
+        "as" => str_repeat('a', 8000),
+        "bs" => str_repeat('b', 8000),
+        "cs" => str_repeat('c', 8000),
+        "ds" => str_repeat('d', 8000),
+        "es" => str_repeat('e', 8000),
+    ];
+    $client = new HttpClient();
+    $request = $client->post('http://localhost:8080');
+    $response = $request
+        ->withJson($expectedContent)
+        ->send();
+
+    expect($response->getStatusCode())->toBe(200);
+
+    $content = '';
+    foreach ($response->iterFrames() as $frame) {
+        $content .= $frame;
+    }
+
+    $json = json_decode($content, true);
     expect($json['json'])->toBe($expectedContent);
 });
