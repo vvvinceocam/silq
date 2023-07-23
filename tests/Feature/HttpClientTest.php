@@ -262,3 +262,17 @@ test('consume body frame by frame', function () {
     $json = json_decode($content, true);
     expect($json['json'])->toBe($expectedContent);
 });
+
+test('get response header', function () {
+    $client = new HttpClient();
+    $request = $client->get('http://localhost:8080');
+    $response = $request->send();
+
+    expect($response->getStatusCode())->toBe(200);
+
+    $value = $response->getHeaderFirstValue('CONTENT-TYPE');
+    expect($value)->toBe("application/json; charset=utf-8");
+
+    $values = $response->getHeaderAllValues('content-type');
+    expect($values)->toBe(["application/json; charset=utf-8"]);
+});

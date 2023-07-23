@@ -375,6 +375,26 @@ impl Response {
         self.parts.status.is_redirection()
     }
 
+    /// Returns the first header's value, or null.
+    /// Ignore the header's name case.
+    pub fn get_header_first_value(&self, header_name: &str) -> Option<String> {
+        self.parts
+            .headers
+            .get(header_name)
+            .map(|value| value.to_str().unwrap().to_string())
+    }
+
+    /// Returns all the values for the given header.
+    /// Ignore the header's name case.
+    pub fn get_header_all_values(&self, header_name: &str) -> Vec<String> {
+        self.parts
+            .headers
+            .get_all(header_name)
+            .iter()
+            .map(|value| value.to_str().unwrap().to_string())
+            .collect()
+    }
+
     /// Download body as raw bytes.
     pub fn get_bytes(&mut self) -> PhpResult<Binary<u8>> {
         let runtime = get_runtime();
