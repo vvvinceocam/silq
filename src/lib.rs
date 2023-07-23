@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(windows, feature(abi_vectorcall))]
 #![allow(clippy::should_implement_trait)]
+#![warn(clippy::unwrap_used)]
 
 mod error;
 mod serde;
@@ -378,21 +379,21 @@ impl Response {
 
     /// Returns the first header's value, or null.
     /// Ignore the header's name case.
-    pub fn get_header_first_value(&self, header_name: &str) -> Option<String> {
+    pub fn get_header_first_value(&self, header_name: &str) -> Option<Binary<u8>> {
         self.parts
             .headers
             .get(header_name)
-            .map(|value| value.to_str().unwrap().to_string())
+            .map(|value| Binary::new(value.as_bytes()))
     }
 
     /// Returns all the values for the given header.
     /// Ignore the header's name case.
-    pub fn get_header_all_values(&self, header_name: &str) -> Vec<String> {
+    pub fn get_header_all_values(&self, header_name: &str) -> Vec<Binary<u8>> {
         self.parts
             .headers
             .get_all(header_name)
             .iter()
-            .map(|value| value.to_str().unwrap().to_string())
+            .map(|value| Binary::new(value.as_bytes()))
             .collect()
     }
 
@@ -410,7 +411,8 @@ impl Response {
                 .ok_or_else(|| SilqError::new("Body already consumed".into()))?;
             let mut content = vec![];
             while let Some(next) = body.frame().await {
-                let frame = next.unwrap();
+                let frame =
+                    next.map_err(|err| SilqError::from("Unable to fetch next frame", &err))?;
                 if let Some(chunk) = frame.data_ref() {
                     content.extend_from_slice(chunk);
                 }
@@ -492,7 +494,7 @@ impl HeaderIterator {
                         .push(name.expect("Infallible").to_string())
                         .expect("Infallible");
                     array
-                        .push(value.to_str().unwrap().to_string())
+                        .push(Binary::new(value.as_bytes()))
                         .expect("Infallible");
                     let mut zval = Zval::new();
                     zval.set_hashtable(array);
@@ -520,7 +522,7 @@ impl HeaderIterator {
                         .push(name.expect("Infallible").to_string())
                         .expect("Infallible");
                     array
-                        .push(value.to_str().unwrap().to_string())
+                        .push(Binary::new(value.as_bytes()))
                         .expect("Infallible");
                     let mut zval = Zval::new();
                     zval.set_hashtable(array);

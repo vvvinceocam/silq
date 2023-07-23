@@ -21,12 +21,12 @@ impl<'a> Serialize for ZvalSerializer<'a> {
             Null => serializer.serialize_none(),
             False => serializer.serialize_bool(false),
             True => serializer.serialize_bool(true),
-            Bool => serializer.serialize_bool(self.0.bool().unwrap()),
-            Long => serializer.serialize_i64(self.0.long().unwrap()),
-            Double => serializer.serialize_f64(self.0.double().unwrap()),
-            String => serializer.serialize_str(self.0.string().unwrap().as_str()),
+            Bool => serializer.serialize_bool(self.0.bool().expect("matched")),
+            Long => serializer.serialize_i64(self.0.long().expect("matched")),
+            Double => serializer.serialize_f64(self.0.double().expect("matched")),
+            String => serializer.serialize_str(self.0.string().expect("matched").as_str()),
             Array => {
-                let array = self.0.array().unwrap();
+                let array = self.0.array().expect("matched");
                 if array.has_sequential_keys() {
                     let mut seq = serializer.serialize_seq(Some(array.len()))?;
                     for value in array.values() {
@@ -192,7 +192,8 @@ impl<'de> Visitor<'de> for SerdeZvalVisitor {
         E: Error,
     {
         let mut val = Zval::new();
-        val.set_string(v, false).unwrap();
+        val.set_string(v, false)
+            .map_err(|err| E::custom(err.to_string()))?;
         Ok(ZvalDeserializer(val))
     }
 
@@ -205,7 +206,8 @@ impl<'de> Visitor<'de> for SerdeZvalVisitor {
         while let Some(el) = seq.next_element::<ZvalDeserializer>()? {
             array.push(el.0);
         }
-        val.set_array(array).unwrap();
+        val.set_array(array)
+            .map_err(|err| A::Error::custom(err.to_string()))?;
         Ok(ZvalDeserializer(val))
     }
 
@@ -216,7 +218,9 @@ impl<'de> Visitor<'de> for SerdeZvalVisitor {
         let mut val = Zval::new();
         let mut hashtable = ZendHashTable::new();
         while let Some((key, value)) = map.next_entry::<String, ZvalDeserializer>()? {
-            hashtable.insert(&key, value.0).unwrap();
+            hashtable
+                .insert(&key, value.0)
+                .map_err(|err| A::Error::custom(err.to_string()))?;
         }
         val.set_hashtable(hashtable);
         Ok(ZvalDeserializer(val))
