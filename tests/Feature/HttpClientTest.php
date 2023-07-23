@@ -276,3 +276,20 @@ test('get response header', function () {
     $values = $response->getHeaderAllValues('content-type');
     expect($values)->toBe(["application/json; charset=utf-8"]);
 });
+
+test('list response headers', function () {
+    $client = new HttpClient();
+    $request = $client->get('http://localhost:8080');
+    $response = $request->send();
+
+    expect($response->getStatusCode())->toBe(200);
+
+    $i = 0;
+    foreach ($response->iterHeaders() as $j => [$name, $value]) {
+        expect($j)->toBe($i);
+        expect($name)->not->toBe('');
+        expect($value)->not->toBe('');
+        $i++;
+    }
+    expect($i)->toBeGreaterThan(0);
+});

@@ -8,6 +8,7 @@ mod serde;
 use std::{collections::HashMap, mem};
 
 use base64::{engine::general_purpose::STANDARD, Engine};
+use ext_php_rs::types::ZendHashTable;
 use ext_php_rs::{
     binary::Binary,
     prelude::*,
@@ -395,6 +396,10 @@ impl Response {
             .collect()
     }
 
+    pub fn iter_headers(&self) -> HeaderIterator {
+        HeaderIterator::new(self.parts.headers.clone())
+    }
+
     /// Download body as raw bytes.
     pub fn get_bytes(&mut self) -> PhpResult<Binary<u8>> {
         let runtime = get_runtime();
@@ -435,13 +440,112 @@ impl Response {
     }
 }
 
-enum FrameIteratorState {
-    /// The iterator
+enum HeaderIteratorState {
     Uninitialized,
-    Frame {
-        index: usize,
-        frame: Vec<u8>,
-    },
+    Header { index: usize, header: Zval },
+    Terminated,
+}
+
+#[php_class(name = "Silq\\HeaderIterator")]
+#[implements(ce::iterator())]
+pub struct HeaderIterator {
+    headers: http::header::IntoIter<HeaderValue>,
+    state: HeaderIteratorState,
+}
+
+impl HeaderIterator {
+    fn new(headers: HeaderMap<HeaderValue>) -> Self {
+        Self {
+            headers: headers.into_iter(),
+            state: HeaderIteratorState::Uninitialized,
+        }
+    }
+}
+
+#[php_impl]
+impl HeaderIterator {
+    pub fn current(&self) -> Zval {
+        match &self.state {
+            HeaderIteratorState::Header { header, .. } => header.shallow_clone(),
+            _ => {
+                panic!("Invalid call to HeaderIterator::current");
+            }
+        }
+    }
+
+    pub fn key(&self) -> usize {
+        match &self.state {
+            HeaderIteratorState::Header { index, .. } => *index,
+            _ => {
+                panic!("Invalid call to HeaderIterator::key");
+            }
+        }
+    }
+
+    pub fn next(&mut self) -> PhpResult<()> {
+        match self.state {
+            HeaderIteratorState::Header { index, .. } => match self.headers.next() {
+                None => self.state = HeaderIteratorState::Terminated,
+                Some((name, value)) => {
+                    let mut array = ZendHashTable::new();
+                    array
+                        .push(name.expect("Infallible").to_string())
+                        .expect("Infallible");
+                    array
+                        .push(value.to_str().unwrap().to_string())
+                        .expect("Infallible");
+                    let mut zval = Zval::new();
+                    zval.set_hashtable(array);
+
+                    self.state = HeaderIteratorState::Header {
+                        index: index + 1,
+                        header: zval,
+                    }
+                }
+            },
+            _ => {
+                self.state = HeaderIteratorState::Terminated;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn rewind(&mut self) -> PhpResult<()> {
+        match self.state {
+            HeaderIteratorState::Uninitialized => match self.headers.next() {
+                None => self.state = HeaderIteratorState::Terminated,
+                Some((name, value)) => {
+                    let mut array = ZendHashTable::new();
+                    array
+                        .push(name.expect("Infallible").to_string())
+                        .expect("Infallible");
+                    array
+                        .push(value.to_str().unwrap().to_string())
+                        .expect("Infallible");
+                    let mut zval = Zval::new();
+                    zval.set_hashtable(array);
+
+                    self.state = HeaderIteratorState::Header {
+                        index: 0,
+                        header: zval,
+                    }
+                }
+            },
+            _ => {
+                self.state = HeaderIteratorState::Terminated;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn valid(&self) -> bool {
+        matches!(self.state, HeaderIteratorState::Header { .. })
+    }
+}
+
+enum FrameIteratorState {
+    Uninitialized,
+    Frame { index: usize, frame: Vec<u8> },
     Terminated,
 }
 
