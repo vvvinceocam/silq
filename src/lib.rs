@@ -1,11 +1,12 @@
-#![forbid(unsafe_code)]
 #![cfg_attr(windows, feature(abi_vectorcall))]
-#![allow(clippy::should_implement_trait)]
+#![forbid(unsafe_code)]
 #![warn(clippy::unwrap_used)]
+#![allow(clippy::should_implement_trait)]
 
 mod error;
 mod serde;
 
+use std::sync::Arc;
 use std::{collections::HashMap, mem};
 
 use base64::{engine::general_purpose::STANDARD, Engine};
@@ -16,7 +17,7 @@ use ext_php_rs::{
     types::{ZendClassObject, Zval},
     zend::ce,
 };
-use http::{request::Builder, HeaderMap, HeaderValue, Method};
+use http::{request::Builder, uri::Scheme, HeaderMap, HeaderValue, Method};
 use http_body_util::{BodyExt, Full};
 use hyper::{
     body::{Bytes, Incoming},
@@ -25,6 +26,11 @@ use hyper::{
 };
 use once_cell::sync::OnceCell;
 use tokio::{net::TcpStream, runtime::Runtime};
+use tokio_rustls::{
+    rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore, ServerName},
+    TlsConnector,
+};
+use webpki_roots::TLS_SERVER_ROOTS;
 
 use crate::{
     error::SilqError,
@@ -104,7 +110,9 @@ enum Payload {
 
 #[php_class(name = "Silq\\RequestBuilder")]
 pub struct RequestBuilder {
+    scheme: Scheme,
     address: String,
+    host: String,
     builder: Builder,
     payload: Payload,
 }
@@ -115,17 +123,28 @@ impl RequestBuilder {
             .parse::<hyper::Uri>()
             .map_err(|err| SilqError::from("Unable to parse URI", &err))?;
 
-        // Get the host and the port
-        let host = uri.host().expect("uri has no host");
-        let port = uri.port_u16().unwrap_or(80);
+        let scheme = match uri.scheme() {
+            None => return Err(SilqError::new("Missing URI scheme".to_string()).into()),
+            Some(scheme) => (*scheme).to_owned(),
+        };
 
-        let address = format!("{}:{}", host, port);
+        let default_port = if scheme.eq("https") { 443 } else { 80 };
 
-        // The authority of our URL will be the hostname with port
         let authority = uri
             .authority()
-            .ok_or_else(|| SilqError::new("Unable to extract authority".to_string()))?
+            .ok_or_else(|| SilqError::new("Unable to extract URI's authority".to_string()))?
             .clone();
+
+        if authority.as_str().contains('@') {
+            Err(SilqError::new(
+                "Reject URI: contains username and password".to_string(),
+            ))?
+        }
+
+        let host = authority.host();
+        let port = authority.port_u16().unwrap_or(default_port);
+
+        let address = format!("{}:{}", host, port);
 
         // Create an HTTP request with an empty body and a HOST header
         let builder = hyper::Request::builder()
@@ -134,7 +153,9 @@ impl RequestBuilder {
             .header(hyper::header::HOST, authority.as_str());
 
         Ok(Self {
+            scheme,
             address,
+            host: host.to_string(),
             builder,
             payload: Payload::Empty,
         })
@@ -310,21 +331,67 @@ impl RequestBuilder {
         .map_err(|err| SilqError::from("Unable to build body", &err))?;
 
         let res = rt.block_on(async move {
-            // Open a TCP connection to the remote host
-            let stream = TcpStream::connect(address)
-                .await
-                .map_err(|err| SilqError::from("Unable to establish connection", &err))?;
+            let mut sender = if self.scheme.eq("https") {
+                let root_store = {
+                    let mut root_store = RootCertStore::empty();
+                    root_store.add_server_trust_anchors(TLS_SERVER_ROOTS.0.iter().map(|ta| {
+                        OwnedTrustAnchor::from_subject_spki_name_constraints(
+                            ta.subject,
+                            ta.spki,
+                            ta.name_constraints,
+                        )
+                    }));
+                    root_store
+                };
 
-            // Perform a TCP handshake
-            let (mut sender, conn) = hyper::client::conn::http1::handshake(stream)
-                .await
-                .map_err(|err| SilqError::from("Unable to run handshake", &err))?;
+                let tls_config = ClientConfig::builder()
+                    .with_safe_defaults()
+                    .with_root_certificates(root_store)
+                    .with_no_client_auth();
 
-            // spawn a task to poll the connection and drive the HTTP state
-            tokio::task::spawn(async move {
-                conn.await
-                    .map_err(|err| SilqError::from("Unable to poll connection", &err))
-            });
+                let rc_tls_config = Arc::new(tls_config);
+
+                let connector = TlsConnector::from(rc_tls_config);
+                let name = ServerName::try_from(self.host.as_str())
+                    .map_err(|err| SilqError::from("Unable to parse host", &err))?;
+                let stream = TcpStream::connect(&address)
+                    .await
+                    .map_err(|err| SilqError::from("Unable to establish connection", &err))?;
+                let stream = connector
+                    .connect(name, stream)
+                    .await
+                    .map_err(|err| SilqError::from("Connection error", &err))?;
+
+                // Perform a TCP handshake
+                let (sender, conn) = hyper::client::conn::http1::handshake(stream)
+                    .await
+                    .map_err(|err| SilqError::from("Unable to run handshake", &err))?;
+
+                // spawn a task to poll the connection and drive the HTTP state
+                tokio::task::spawn(async move {
+                    conn.await
+                        .map_err(|err| SilqError::from("Unable to poll connection", &err))
+                });
+
+                sender
+            } else {
+                let stream = TcpStream::connect(address)
+                    .await
+                    .map_err(|err| SilqError::from("Unable to establish connection", &err))?;
+
+                // Perform a TCP handshake
+                let (sender, conn) = hyper::client::conn::http1::handshake(stream)
+                    .await
+                    .map_err(|err| SilqError::from("Unable to run handshake", &err))?;
+
+                // spawn a task to poll the connection and drive the HTTP state
+                tokio::task::spawn(async move {
+                    conn.await
+                        .map_err(|err| SilqError::from("Unable to poll connection", &err))
+                });
+
+                sender
+            };
 
             // Await the response...
             sender

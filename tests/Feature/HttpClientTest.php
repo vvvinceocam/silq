@@ -293,3 +293,11 @@ test('list response headers', function () {
     }
     expect($i)->toBeGreaterThan(0);
 });
+
+test('get HTTPS', function () {
+    $client = new HttpClient();
+    $request = $client->get('https://postman-echo.com/get');
+    $response = $request->send();
+
+    expect($response->getStatusCode())->toBe(200);
+});
