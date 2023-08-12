@@ -7,7 +7,9 @@ function parseSafeCookies(string $rawCookies): array {
 }
 
 test('simple GET request', function () {
-    $client = new HttpClient();
+    $client = HttpClient::builder()
+        ->allowUnsecureHttp(true)
+        ->build();
     $request = $client->get('http://localhost:8080');
     $response = $request->send();
 
@@ -22,7 +24,9 @@ test('simple GET request', function () {
 });
 
 test('simple POST request', function () {
-    $client = new HttpClient();
+    $client = HttpClient::builder()
+        ->allowUnsecureHttp(true)
+        ->build();
     $request = $client->post('http://localhost:8080');
     $response = $request->send();
 
@@ -37,7 +41,9 @@ test('simple POST request', function () {
 });
 
 test('simple PUT request', function () {
-    $client = new HttpClient();
+    $client = HttpClient::builder()
+        ->allowUnsecureHttp(true)
+        ->build();
     $request = $client->put('http://localhost:8080');
     $response = $request->send();
 
@@ -52,7 +58,9 @@ test('simple PUT request', function () {
 });
 
 test('simple PATCH request', function () {
-    $client = new HttpClient();
+    $client = HttpClient::builder()
+        ->allowUnsecureHttp(true)
+        ->build();
     $request = $client->patch('http://localhost:8080');
     $response = $request->send();
 
@@ -67,7 +75,9 @@ test('simple PATCH request', function () {
 });
 
 test('simple DELETE request', function () {
-    $client = new HttpClient();
+    $client = HttpClient::builder()
+        ->allowUnsecureHttp(true)
+        ->build();
     $request = $client->delete('http://localhost:8080');
     $response = $request->send();
 
@@ -87,7 +97,9 @@ test('GET request with headers', function () {
        'x-custom-header2' => 'some value with ;',
    ];
 
-    $client = new HttpClient();
+    $client = HttpClient::builder()
+        ->allowUnsecureHttp(true)
+        ->build();
     $request = $client->get('http://localhost:8080');
     $response = $request
         ->withHeaders($headers)
@@ -108,7 +120,9 @@ test('GET request with cookies', function () {
         "foo" => "bar",
         "some-key" => "value2 ;  value2",
     ];
-    $client = new HttpClient();
+    $client = HttpClient::builder()
+        ->allowUnsecureHttp(true)
+        ->build();
     $response = $client->get('http://localhost:8080')->withSafeCookies($cookies)->send();
     expect($response->getStatusCode())->toBe(200);
     $body = $response->getText();
@@ -127,7 +141,9 @@ test('GET request with both cookies and headers', function () {
         "foo" => "bar",
     ];
 
-    $client = new HttpClient();
+    $client = HttpClient::builder()
+        ->allowUnsecureHttp(true)
+        ->build();
     $response = $client->get('http://localhost:8080')
         ->withHeaders($headers)
         ->withSafeCookies($cookies)
@@ -143,7 +159,9 @@ test('GET request with both cookies and headers', function () {
 
 test('POST request with string body', function () {
     $expectedContent = "Some content\non multiple lines";
-    $client = new HttpClient();
+    $client = HttpClient::builder()
+        ->allowUnsecureHttp(true)
+        ->build();
     $request = $client->post('http://localhost:8080');
     $response = $request
         ->withBody($expectedContent)
@@ -168,7 +186,9 @@ test('POST request with JSON body', function () {
         "array" => [ 1, 2, 3 ],
         "null" => NULL,
     ];
-    $client = new HttpClient();
+    $client = HttpClient::builder()
+        ->allowUnsecureHttp(true)
+        ->build();
     $request = $client->post('http://localhost:8080');
     $response = $request
         ->withJson($expectedContent)
@@ -191,7 +211,9 @@ test('POST request with FORM body', function () {
         "integer" => "123",
         "float" => "3.14",
     ];
-    $client = new HttpClient();
+    $client = HttpClient::builder()
+        ->allowUnsecureHttp(true)
+        ->build();
     $request = $client->post('http://localhost:8080');
     $response = $request
         ->withForm($expectedContent)
@@ -210,7 +232,7 @@ test('POST request with FORM body', function () {
 });
 
 test('GET request with basic auth', function () {
-    $client = new HttpClient();
+    $client = HttpClient::default();
     $response = $client->get('https://postman-echo.com/basic-auth')->withBasicAuth('postman', 'password')->send();
     expect($response->getStatusCode())->toBe(200);
     $body = $response->getText();
@@ -226,7 +248,9 @@ test('fetch and parse JSON body', function () {
         "array" => [ 1, 2, 3 ],
         "null" => NULL,
     ];
-    $client = new HttpClient();
+    $client = HttpClient::builder()
+        ->allowUnsecureHttp(true)
+        ->build();
     $request = $client->post('http://localhost:8080');
     $response = $request
         ->withJson($expectedContent)
@@ -246,7 +270,9 @@ test('consume body frame by frame', function () {
         "ds" => str_repeat('d', 8000),
         "es" => str_repeat('e', 8000),
     ];
-    $client = new HttpClient();
+    $client = HttpClient::builder()
+        ->allowUnsecureHttp(true)
+        ->build();
     $request = $client->post('http://localhost:8080');
     $response = $request
         ->withJson($expectedContent)
@@ -264,7 +290,9 @@ test('consume body frame by frame', function () {
 });
 
 test('get response header', function () {
-    $client = new HttpClient();
+    $client = HttpClient::builder()
+        ->allowUnsecureHttp(true)
+        ->build();
     $request = $client->get('http://localhost:8080');
     $response = $request->send();
 
@@ -278,7 +306,9 @@ test('get response header', function () {
 });
 
 test('list response headers', function () {
-    $client = new HttpClient();
+    $client = HttpClient::builder()
+        ->allowUnsecureHttp(true)
+        ->build();
     $request = $client->get('http://localhost:8080');
     $response = $request->send();
 
@@ -295,7 +325,9 @@ test('list response headers', function () {
 });
 
 test('get HTTPS', function () {
-    $client = new HttpClient();
+    $client = HttpClient::builder()
+        ->allowUnsecureHttp(true)
+        ->build();
     $request = $client->get('https://postman-echo.com/get');
     $response = $request->send();
 

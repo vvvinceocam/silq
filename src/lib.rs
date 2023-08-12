@@ -47,59 +47,96 @@ fn get_runtime() -> &'static Runtime {
     RUNTIME.get().expect("Uninitialized Silq Runtime")
 }
 
+/// HTTP client builder
+#[php_class(name = "Silq\\HttpClientBuilder")]
+pub struct HttpClientBuilder {
+    allow_unsecure_http: bool,
+}
+
+#[php_impl]
+impl HttpClientBuilder {
+    #[constructor]
+    pub fn default() -> HttpClientBuilder {
+        Self {
+            allow_unsecure_http: false,
+        }
+    }
+
+    pub fn allow_unsecure_http(
+        #[this] this: &mut ZendClassObject<Self>,
+        allow: bool,
+    ) -> &mut ZendClassObject<Self> {
+        this.allow_unsecure_http = allow;
+        this
+    }
+
+    pub fn build(&self) -> HttpClient {
+        HttpClient {
+            allow_unsecure_http: self.allow_unsecure_http,
+        }
+    }
+}
+
 /// HTTP client
 #[php_class(name = "Silq\\HttpClient")]
-pub struct HttpClient;
+#[derive(Clone)]
+pub struct HttpClient {
+    allow_unsecure_http: bool,
+}
 
 #[php_impl]
 impl HttpClient {
-    pub fn __construct() -> Self {
-        Self {}
+    pub fn default() -> Self {
+        HttpClientBuilder::default().build()
+    }
+
+    pub fn builder() -> HttpClientBuilder {
+        HttpClientBuilder::default()
     }
 
     /// Execute a HEAD request to the specified URL. Returns a Response object.
     pub fn head(&self, uri: &str) -> PhpResult<RequestBuilder> {
-        RequestBuilder::new(Method::HEAD, uri)
+        RequestBuilder::new(self.clone(), Method::HEAD, uri)
     }
 
     /// Execute a GET request to the specified URL. Returns a Response object.
     pub fn get(&self, uri: &str) -> PhpResult<RequestBuilder> {
-        RequestBuilder::new(Method::GET, uri)
+        RequestBuilder::new(self.clone(), Method::GET, uri)
     }
 
     /// Execute a POST request to the specified URL. Returns a Response object.
     pub fn post(&self, uri: &str) -> PhpResult<RequestBuilder> {
-        RequestBuilder::new(Method::POST, uri)
+        RequestBuilder::new(self.clone(), Method::POST, uri)
     }
 
     /// Execute a PUT request to the specified URL. Returns a Response object.
     pub fn put(&self, uri: &str) -> PhpResult<RequestBuilder> {
-        RequestBuilder::new(Method::PUT, uri)
+        RequestBuilder::new(self.clone(), Method::PUT, uri)
     }
 
     /// Execute a PATCH request to the specified URL. Returns a Response object.
     pub fn patch(&self, uri: &str) -> PhpResult<RequestBuilder> {
-        RequestBuilder::new(Method::PATCH, uri)
+        RequestBuilder::new(self.clone(), Method::PATCH, uri)
     }
 
     /// Execute a DELETE request to the specified URL. Returns a Response object.
     pub fn delete(&self, uri: &str) -> PhpResult<RequestBuilder> {
-        RequestBuilder::new(Method::DELETE, uri)
+        RequestBuilder::new(self.clone(), Method::DELETE, uri)
     }
 
     /// Execute a CONNECT request to the specified URL. Returns a Response object.
     pub fn connect(&self, uri: &str) -> PhpResult<RequestBuilder> {
-        RequestBuilder::new(Method::CONNECT, uri)
+        RequestBuilder::new(self.clone(), Method::CONNECT, uri)
     }
 
     /// Execute a OPTIONS request to the specified URL. Returns a Response object.
     pub fn options(&self, uri: &str) -> PhpResult<RequestBuilder> {
-        RequestBuilder::new(Method::OPTIONS, uri)
+        RequestBuilder::new(self.clone(), Method::OPTIONS, uri)
     }
 
     /// Execute a TRACE request to the specified URL. Returns a Response object.
     pub fn trace(&self, uri: &str) -> PhpResult<RequestBuilder> {
-        RequestBuilder::new(Method::TRACE, uri)
+        RequestBuilder::new(self.clone(), Method::TRACE, uri)
     }
 }
 
@@ -118,7 +155,7 @@ pub struct RequestBuilder {
 }
 
 impl RequestBuilder {
-    pub fn new(method: Method, uri: &str) -> PhpResult<Self> {
+    pub fn new(client: HttpClient, method: Method, uri: &str) -> PhpResult<Self> {
         let uri = uri
             .parse::<hyper::Uri>()
             .map_err(|err| SilqError::from("Unable to parse URI", &err))?;
@@ -127,6 +164,10 @@ impl RequestBuilder {
             None => return Err(SilqError::new("Missing URI scheme".to_string()).into()),
             Some(scheme) => (*scheme).to_owned(),
         };
+
+        if !client.allow_unsecure_http && scheme.eq(&Scheme::HTTP) {
+            Err(SilqError::new("Unsecure HTTP disabled".to_string()))?
+        }
 
         let default_port = if scheme.eq("https") { 443 } else { 80 };
 
@@ -334,7 +375,7 @@ impl RequestBuilder {
             let mut sender = if self.scheme.eq("https") {
                 let root_store = {
                     let mut root_store = RootCertStore::empty();
-                    root_store.add_server_trust_anchors(TLS_SERVER_ROOTS.0.iter().map(|ta| {
+                    root_store.add_trust_anchors(TLS_SERVER_ROOTS.0.iter().map(|ta| {
                         OwnedTrustAnchor::from_subject_spki_name_constraints(
                             ta.subject,
                             ta.spki,
