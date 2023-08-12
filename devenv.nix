@@ -22,8 +22,10 @@
    pkgs.re2c
    pkgs.autoconf
    pkgs.libxml2
-   pkgs.libxml2
    pkgs.oniguruma
+
+   # required by cargo-audit
+   pkgs.openssl
   ];
 
   enterShell = ''
@@ -35,6 +37,10 @@
 
     if [ -z $(which cargo-php) ]; then
       cargo install cargo-php
+    fi
+
+    if [ -z $(which cargo-audit) ]; then
+      cargo install cargo-audit
     fi
   '';
 }
