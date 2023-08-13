@@ -24,6 +24,7 @@ use hyper::{
     header::{HeaderName, AUTHORIZATION, CONTENT_TYPE},
     http::response::Parts,
 };
+use hyper_util::rt::TokioIo;
 use once_cell::sync::OnceCell;
 use tokio::{net::TcpStream, runtime::Runtime};
 use tokio_rustls::{
@@ -402,6 +403,7 @@ impl RequestBuilder {
                     .connect(name, stream)
                     .await
                     .map_err(|err| SilqError::from("Connection error", &err))?;
+                let stream = TokioIo::new(stream);
 
                 // Perform a TCP handshake
                 let (sender, conn) = hyper::client::conn::http1::handshake(stream)
@@ -419,6 +421,7 @@ impl RequestBuilder {
                 let stream = TcpStream::connect(address)
                     .await
                     .map_err(|err| SilqError::from("Unable to establish connection", &err))?;
+                let stream = TokioIo::new(stream);
 
                 // Perform a TCP handshake
                 let (sender, conn) = hyper::client::conn::http1::handshake(stream)
