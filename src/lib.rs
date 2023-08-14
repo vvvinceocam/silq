@@ -6,6 +6,7 @@
 mod error;
 mod serde;
 
+use std::io::{BufReader, Cursor};
 use std::sync::Arc;
 use std::{collections::HashMap, mem};
 
@@ -26,7 +27,9 @@ use hyper::{
 };
 use hyper_util::rt::TokioIo;
 use once_cell::sync::OnceCell;
+use rustls_pemfile::{read_one, Item};
 use tokio::{net::TcpStream, runtime::Runtime};
+use tokio_rustls::rustls::{Certificate, PrivateKey};
 use tokio_rustls::{
     rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore, ServerName},
     TlsConnector,
@@ -52,6 +55,7 @@ fn get_runtime() -> &'static Runtime {
 #[php_class(name = "Silq\\HttpClientBuilder")]
 pub struct HttpClientBuilder {
     allow_unsecure_http: bool,
+    client_identity: Option<ClientIdentity>,
 }
 
 #[php_impl]
@@ -60,6 +64,7 @@ impl HttpClientBuilder {
     pub fn default() -> HttpClientBuilder {
         Self {
             allow_unsecure_http: false,
+            client_identity: None,
         }
     }
 
@@ -71,10 +76,55 @@ impl HttpClientBuilder {
         this
     }
 
-    pub fn build(&self) -> HttpClient {
-        HttpClient {
-            allow_unsecure_http: self.allow_unsecure_http,
-        }
+    pub fn with_client_authentication<'a>(
+        #[this] this: &'a mut ZendClassObject<Self>,
+        client_identity: &ZendClassObject<ClientIdentity>,
+    ) -> PhpResult<&'a mut ZendClassObject<Self>> {
+        this.client_identity = Some((*client_identity).clone());
+        Ok(this)
+    }
+
+    pub fn build(&mut self) -> PhpResult<HttpClient> {
+        let transport_security = match self {
+            HttpClientBuilder {
+                allow_unsecure_http: true,
+                client_identity: Some(_),
+                ..
+            } => Err(SilqError::new(
+                "can't allow unsecure HTTP with client authentication".to_string(),
+            ))?,
+            HttpClientBuilder {
+                allow_unsecure_http: true,
+                client_identity: None,
+                ..
+            } => TransportSecurity::AllowUnsecure,
+            HttpClientBuilder {
+                allow_unsecure_http: false,
+                client_identity: Some(identity),
+                ..
+            } => TransportSecurity::SecureOnly {
+                client_identity: Some(identity.clone()),
+            },
+            _ => TransportSecurity::SecureOnly {
+                client_identity: None,
+            },
+        };
+
+        Ok(HttpClient { transport_security })
+    }
+}
+
+#[derive(Clone)]
+pub enum TransportSecurity {
+    AllowUnsecure,
+    SecureOnly {
+        client_identity: Option<ClientIdentity>,
+    },
+}
+
+impl TransportSecurity {
+    pub fn allow_unsecure(&self) -> bool {
+        matches!(self, &TransportSecurity::AllowUnsecure)
     }
 }
 
@@ -82,13 +132,15 @@ impl HttpClientBuilder {
 #[php_class(name = "Silq\\HttpClient")]
 #[derive(Clone)]
 pub struct HttpClient {
-    allow_unsecure_http: bool,
+    transport_security: TransportSecurity,
 }
 
 #[php_impl]
 impl HttpClient {
     pub fn default() -> Self {
-        HttpClientBuilder::default().build()
+        HttpClientBuilder::default()
+            .build()
+            .expect("default configuration must be safe")
     }
 
     pub fn builder() -> HttpClientBuilder {
@@ -148,6 +200,7 @@ enum Payload {
 
 #[php_class(name = "Silq\\RequestBuilder")]
 pub struct RequestBuilder {
+    client: HttpClient,
     scheme: Scheme,
     address: String,
     host: String,
@@ -166,7 +219,7 @@ impl RequestBuilder {
             Some(scheme) => (*scheme).to_owned(),
         };
 
-        if !client.allow_unsecure_http && scheme.eq(&Scheme::HTTP) {
+        if !client.transport_security.allow_unsecure() && scheme.eq(&Scheme::HTTP) {
             Err(SilqError::new("Unsecure HTTP disabled".to_string()))?
         }
 
@@ -195,6 +248,7 @@ impl RequestBuilder {
             .header(hyper::header::HOST, authority.as_str());
 
         Ok(Self {
+            client,
             scheme,
             address,
             host: host.to_string(),
@@ -386,10 +440,22 @@ impl RequestBuilder {
                     root_store
                 };
 
-                let tls_config = ClientConfig::builder()
-                    .with_safe_defaults()
-                    .with_root_certificates(root_store)
-                    .with_no_client_auth();
+                let tls_config = match &self.client.transport_security {
+                    TransportSecurity::SecureOnly {
+                        client_identity: Some(identity),
+                    } => ClientConfig::builder()
+                        .with_safe_defaults()
+                        .with_root_certificates(root_store)
+                        .with_client_auth_cert(
+                            vec![identity.certificate.clone()],
+                            identity.private_key.clone(),
+                        )
+                        .map_err(|err| SilqError::from("Unable to use client identity", &err))?,
+                    _ => ClientConfig::builder()
+                        .with_safe_defaults()
+                        .with_root_certificates(root_store)
+                        .with_no_client_auth(),
+                };
 
                 let rc_tls_config = Arc::new(tls_config);
 
@@ -741,6 +807,65 @@ impl FrameIterator {
 
     pub fn valid(&self) -> bool {
         matches!(self.state, FrameIteratorState::Frame { .. })
+    }
+}
+
+#[php_class(name = "Silq\\ClientIdentity")]
+#[derive(Clone)]
+pub struct ClientIdentity {
+    certificate: Certificate,
+    private_key: PrivateKey,
+}
+
+#[php_impl]
+impl ClientIdentity {
+    pub fn from_base64_pem(certificate: &str, private_key: &str) -> PhpResult<Self> {
+        let pem_certificate = String::from_utf8(
+            STANDARD
+                .decode(certificate)
+                .map_err(|err| SilqError::from("Unable to decode base64 PEM", &err))?,
+        )
+        .map_err(|err| SilqError::from("Unable to parse PEM certificate", &err))?;
+
+        let pem_private_key = String::from_utf8(
+            STANDARD
+                .decode(private_key)
+                .map_err(|err| SilqError::from("Unable to decode base64 PEM", &err))?,
+        )
+        .map_err(|err| SilqError::from("Unable to parse PEM private key", &err))?;
+        Self::from_pem(pem_certificate.as_str(), pem_private_key.as_str())
+    }
+
+    pub fn from_pem(certificate: &str, private_key: &str) -> PhpResult<Self> {
+        let mut buffer = BufReader::new(Cursor::new(certificate));
+        let certificate = match read_one(&mut buffer) {
+            Ok(Some(Item::X509Certificate(data))) => Ok(Certificate(data)),
+            Ok(None) => Err(SilqError::new("No certificate found".into())),
+            Err(err) => Err(SilqError::from("Unable to read certificate", &err)),
+            _ => Err(SilqError::new("Invalid certificate".into())),
+        }?;
+
+        let mut buffer = BufReader::new(Cursor::new(private_key));
+        let private_key = match read_one(&mut buffer) {
+            Ok(Some(Item::RSAKey(data)))
+            | Ok(Some(Item::ECKey(data)))
+            | Ok(Some(Item::PKCS8Key(data))) => Ok(PrivateKey(data)),
+            Ok(None) => Err(SilqError::new("No secret key found".into())),
+            Err(err) => Err(SilqError::from("Unable to read secret key", &err)),
+            _ => Err(SilqError::new("Invalid secret key".into())),
+        }?;
+
+        Ok(Self {
+            certificate,
+            private_key,
+        })
+    }
+
+    pub fn from_bytes(certificate: Binary<u8>, private_key: Binary<u8>) -> Self {
+        Self {
+            certificate: Certificate(certificate.to_vec()),
+            private_key: PrivateKey(private_key.to_vec()),
+        }
     }
 }
 
