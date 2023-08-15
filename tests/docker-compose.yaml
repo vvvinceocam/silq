@@ -3,5 +3,11 @@ services:
     image: docker.io/mendhak/http-https-echo:26
     ports:
       - "8080:8080"
+      - "8443:8443"
+    volumes:
+      - ./data/server-crt.pem:/app/fullchain.pem:ro
+      - ./data/server-key.pem:/app/privkey.pem:ro
+    environment:
+      - MTLS_ENABLE=1
     healthcheck:
       test: curl --fail http://localhost:8080 || exit 1

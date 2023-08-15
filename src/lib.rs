@@ -56,6 +56,7 @@ fn get_runtime() -> &'static Runtime {
 pub struct HttpClientBuilder {
     allow_unsecure_http: bool,
     client_identity: Option<ClientIdentity>,
+    ca_cert: Option<CertificateAuthority>,
 }
 
 #[php_impl]
@@ -65,6 +66,7 @@ impl HttpClientBuilder {
         Self {
             allow_unsecure_http: false,
             client_identity: None,
+            ca_cert: None,
         }
     }
 
@@ -84,30 +86,33 @@ impl HttpClientBuilder {
         Ok(this)
     }
 
+    pub fn with_server_authentication<'a>(
+        #[this] this: &'a mut ZendClassObject<Self>,
+        certificate_authority: &ZendClassObject<CertificateAuthority>,
+    ) -> PhpResult<&'a mut ZendClassObject<Self>> {
+        this.ca_cert = Some((*certificate_authority).clone());
+        Ok(this)
+    }
+
     pub fn build(&mut self) -> PhpResult<HttpClient> {
         let transport_security = match self {
             HttpClientBuilder {
                 allow_unsecure_http: true,
-                client_identity: Some(_),
-                ..
-            } => Err(SilqError::new(
-                "can't allow unsecure HTTP with client authentication".to_string(),
-            ))?,
-            HttpClientBuilder {
-                allow_unsecure_http: true,
                 client_identity: None,
-                ..
+                ca_cert: None,
             } => TransportSecurity::AllowUnsecure,
             HttpClientBuilder {
                 allow_unsecure_http: false,
-                client_identity: Some(identity),
+                client_identity,
+                ca_cert,
                 ..
             } => TransportSecurity::SecureOnly {
-                client_identity: Some(identity.clone()),
+                client_identity: client_identity.clone(),
+                ca_cert: ca_cert.clone(),
             },
-            _ => TransportSecurity::SecureOnly {
-                client_identity: None,
-            },
+            _ => Err(SilqError::new(
+                "can't allow unsecure HTTP with client authentication".to_string(),
+            ))?,
         };
 
         Ok(HttpClient { transport_security })
@@ -119,6 +124,7 @@ pub enum TransportSecurity {
     AllowUnsecure,
     SecureOnly {
         client_identity: Option<ClientIdentity>,
+        ca_cert: Option<CertificateAuthority>,
     },
 }
 
@@ -236,7 +242,10 @@ impl RequestBuilder {
             ))?
         }
 
-        let host = authority.host();
+        let host = authority
+            .host()
+            .trim_start_matches('[')
+            .trim_end_matches(']');
         let port = authority.port_u16().unwrap_or(default_port);
 
         let address = format!("{}:{}", host, port);
@@ -430,19 +439,30 @@ impl RequestBuilder {
             let mut sender = if self.scheme.eq("https") {
                 let root_store = {
                     let mut root_store = RootCertStore::empty();
-                    root_store.add_trust_anchors(TLS_SERVER_ROOTS.0.iter().map(|ta| {
-                        OwnedTrustAnchor::from_subject_spki_name_constraints(
-                            ta.subject,
-                            ta.spki,
-                            ta.name_constraints,
-                        )
-                    }));
+                    if let TransportSecurity::SecureOnly {
+                        ca_cert: Some(ca_cert),
+                        ..
+                    } = &self.client.transport_security
+                    {
+                        root_store.add(&ca_cert.certificate).map_err(|err| {
+                            SilqError::from("Unable to use specified CA Certificate", &err)
+                        })?;
+                    } else {
+                        root_store.add_trust_anchors(TLS_SERVER_ROOTS.0.iter().map(|ta| {
+                            OwnedTrustAnchor::from_subject_spki_name_constraints(
+                                ta.subject,
+                                ta.spki,
+                                ta.name_constraints,
+                            )
+                        }));
+                    }
                     root_store
                 };
 
                 let tls_config = match &self.client.transport_security {
                     TransportSecurity::SecureOnly {
                         client_identity: Some(identity),
+                        ..
                     } => ClientConfig::builder()
                         .with_safe_defaults()
                         .with_root_certificates(root_store)
@@ -451,6 +471,7 @@ impl RequestBuilder {
                             identity.private_key.clone(),
                         )
                         .map_err(|err| SilqError::from("Unable to use client identity", &err))?,
+
                     _ => ClientConfig::builder()
                         .with_safe_defaults()
                         .with_root_certificates(root_store)
@@ -865,6 +886,43 @@ impl ClientIdentity {
         Self {
             certificate: Certificate(certificate.to_vec()),
             private_key: PrivateKey(private_key.to_vec()),
+        }
+    }
+}
+
+#[php_class(name = "Silq\\CertificateAuthority")]
+#[derive(Clone)]
+pub struct CertificateAuthority {
+    certificate: Certificate,
+}
+
+#[php_impl]
+impl CertificateAuthority {
+    pub fn from_base64_pem(certificate: &str) -> PhpResult<Self> {
+        let pem = String::from_utf8(
+            STANDARD
+                .decode(certificate)
+                .map_err(|err| SilqError::from("Unable to decode base64 PEM", &err))?,
+        )
+        .map_err(|err| SilqError::from("Unable to parse PEM certificate", &err))?;
+        Self::from_pem(pem.as_str())
+    }
+
+    pub fn from_pem(certificate: &str) -> PhpResult<Self> {
+        let mut buffer = BufReader::new(Cursor::new(certificate));
+        match read_one(&mut buffer) {
+            Ok(Some(Item::X509Certificate(data))) => Ok(Self {
+                certificate: Certificate(data),
+            }),
+            Ok(None) => Err(SilqError::new("No certificate found".into()).into()),
+            Err(err) => Err(SilqError::from("Unable to read certificate", &err).into()),
+            _ => Err(SilqError::new("Invalid certificate".into()).into()),
+        }
+    }
+
+    pub fn from_bytes(certificate: Binary<u8>) -> Self {
+        Self {
+            certificate: Certificate(certificate.to_vec()),
         }
     }
 }
