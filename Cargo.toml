@@ -27,4 +27,4 @@ serde_urlencoded = "0.7.1"
 tokio = { version = "1", features = ["full"] }
 tokio-rustls = "0.24.1"
 urlencoding = "2.1.2"
-webpki-roots = "0.23.1"
+webpki-roots = "0.25.2"

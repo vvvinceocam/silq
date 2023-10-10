@@ -7,7 +7,7 @@
   };
 
   pre-commit.hooks = {
-    clippy.enable = false;
+    clippy.enable = true;
     rustfmt.enable = true;
   };
 
@@ -23,6 +23,7 @@
    pkgs.autoconf
    pkgs.libxml2
    pkgs.oniguruma
+   pkgs.curl
 
    # required by cargo-audit
    pkgs.openssl
@@ -30,7 +31,7 @@
 
   enterShell = ''
     export CARGO_HOME="$PWD/.cargo"
-    export PATH="$PWD/target/php/bin:$PWD/.cargo/bin/:$PWD/vendor/bin:$PATH"
+    export PATH="$PWD/php-src/build/bin:$PWD/.cargo/bin/:$PWD/vendor/bin:$PATH"
 
     # Link the rust stdlib sources to a defined path to ease IDEs integration
     ln -sfT "$RUST_SRC_PATH" "$PWD/.rust-src"

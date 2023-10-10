@@ -1,6 +1,7 @@
 {
   "require-dev": {
-    "pestphp/pest": "^2.8"
+    "pestphp/pest": "^2.8",
+    "phpbench/phpbench": "^1.2"
   },
   "config": {
     "allow-plugins": {
